@@ -54,5 +54,4 @@ jobs:
       - name: Create Release
         uses: KernelSU-Modules-Repo/module_release@main
         with:
-          file: "./downloads/MiPay4XiaomiEU.zip"
-          token: ${{ secrets.GITHUB_TOKEN }}
+          file: MiPay4XiaomiEU.zip
