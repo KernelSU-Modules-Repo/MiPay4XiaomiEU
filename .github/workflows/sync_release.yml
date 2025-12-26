@@ -1,0 +1,71 @@
+name: Sync Release Weekly
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Versions
+        id: check_ver
+        run: |
+          # 获取源仓库最新 Tag
+          SOURCE_TAG=$(curl -s https://api.github.com/repos/ReiAccept/MiPay4XiaomiEU/releases/latest | jq -r .tag_name)
+          # 获取你自己仓库最新 Tag
+          MY_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r .tag_name)
+          
+          echo "Source tag: $SOURCE_TAG"
+          echo "My tag: $MY_TAG"
+          
+          if [ "$SOURCE_TAG" != "$MY_TAG" ] && [ "$SOURCE_TAG" != "null" ]; then
+            echo "should_sync=true" >> $GITHUB_OUTPUT
+            echo "tag=$SOURCE_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "should_sync=false" >> $GITHUB_OUTPUT
+            echo "版本一致或源仓库无发布，跳过同步"
+          fi
+
+      - name: Get Release Data
+        if: steps.check_ver.outputs.should_sync == 'true'
+        id: get_release
+        run: |
+          RELEASE_DATA=$(curl -s https://api.github.com/repos/ReiAccept/MiPay4XiaomiEU/releases/latest)
+          BODY=$(echo "$RELEASE_DATA" | jq -r .body)
+          NAME=$(echo "$RELEASE_DATA" | jq -r .name)
+          
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # 提取下载链接
+          echo "$RELEASE_DATA" | jq -r '.assets[].browser_download_url' > urls.txt
+
+      - name: Download Assets
+        if: steps.check_ver.outputs.should_sync == 'true'
+        run: |
+          mkdir -p ./downloads
+          while IFS= read -r url; do
+            echo "Downloading $url..."
+            curl -LJO --output-dir ./downloads "$url"
+          done < urls.txt
+
+      - name: Create Release
+        if: steps.check_ver.outputs.should_sync == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.check_ver.outputs.tag }}
+          name: ${{ steps.get_release.outputs.name }}
+          body: |
+            > **Sync Note:** This release was synced from ReiAccept/MiPay4XiaomiEU
+            
+            ${{ steps.get_release.outputs.body }}
+          files: ./downloads/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
